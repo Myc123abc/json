@@ -15,16 +15,19 @@ public:
         PARSE_OK,
         PARSE_EXPECT_VALUE,
         PARSE_INVALID_VALUE,
-        PARSE_ROOT_NOT_SINGULAR
+        PARSE_ROOT_NOT_SINGULAR,
+        PARSE_NUMBER_TOO_BIG
     };
 
     struct Value {
+        double n;
         Type type;
     };
 
 
-    Status parse(const char *json);
+    Status parse(const char* json);
     Type get_type() { return v.type; }
+    double get_number() { assert(v.type == _NUMBER); return v.n; }
 
     void clear() { v.type = _FALSE; }
 
@@ -35,16 +38,15 @@ private:
     }
     
     void parse_whitespace(); 
-    Status parse_null();
-    Status parse_true();
-    Status parse_false();
+    Status parse_literal(const char *target, Type type);
     Status parse_value();
+    Status parse_number();
 
     struct Context {
-        const char *json;
+        const char* json;
     };
 
-    Value v = { _FALSE };
+    Value v{ 0.0, _FALSE };
     Context c;
 };
 
