@@ -60,7 +60,7 @@ leptjson::json::Status leptjson::json::parse_number() {
     return PARSE_OK;
 }
 
-#define PUTC(ch) do { *(char*)context_push(sizeof(char)) = (ch); } while(0)
+#define PUTC(ch) do { *(char*)c.context_push(sizeof(char)) = (ch); } while(0)
 #define STRING_ERROR(ret) do { c.top = head; return ret; } while(0)
 leptjson::json::Status leptjson::json::parse_string() {
     size_t head = c.top, len = 0;
@@ -102,7 +102,7 @@ leptjson::json::Status leptjson::json::parse_string() {
                 }   break;
             case '\"':
                 len = c.top - head;
-                set_string(static_cast<const char*>(context_pop(len)), len);
+                vp->set_string(static_cast<const char*>(c.context_pop(len)), len);
                 c.json = p;
                 return PARSE_OK;
             case '\0':
@@ -122,6 +122,7 @@ leptjson::json::Status leptjson::json::parse_value() {
         case 'f':   return parse_literal("false", _FALSE); 
         default:    return parse_number();
         case '"':   return parse_string();
+        case '[':   return parse_array();
         case '\0':  return PARSE_EXPECT_VALUE;
     }
 }
@@ -143,30 +144,30 @@ leptjson::json::Status leptjson::json::parse(const char* json) {
     return ret;
 }
 
-void leptjson::json::set_string(const char* s, size_t len) {
-    assert(s != nullptr || len == 0);
-    vp->free();
-    vp->s = new char[len + 1];
-    memcpy(vp->s, s, len);
-    vp->s[len] = '\0';
-    vp->len = len;
-    vp->type = _STRING;
+void leptjson::json::Value::set_string(const char* s2, size_t len2) {
+    assert(s2 != nullptr || len2 == 0);
+    free();
+    s = new char[len2 + 1];
+    memcpy(s, s2, len2);
+    s[len2] = '\0';
+    len = len2;
+    type = _STRING;
 }
 
 
-void* leptjson::json::context_push(size_t size) {
+void* leptjson::json::Context::context_push(size_t size2) {
 #ifndef PARSE_STACK_INIT_SIZE
 #define PARSE_STACK_INIT_SIZE   256
     void* ret = nullptr;
-    assert(size > 0);
-    if (c.top + size >= c.size) {
-        if (c.size == 0)    c.size = PARSE_STACK_INIT_SIZE;
-        while (c.top + size >= c.size)
-            c.size += c.size >> 1;
-        c.stack = new char[c.size];
+    assert(size2 > 0);
+    if (top + size2 >= size) {
+        if (size == 0)    size = PARSE_STACK_INIT_SIZE;
+        while (top + size2 >= size)
+            size += size >> 1;
+        stack = new char[size];
     }
-    ret = c.stack + c.top;
-    c.top += size;
+    ret = stack + top;
+    top += size2;
     return ret;
 #undef  PARSE_STACK_INIT_SIZE
 #endif
@@ -205,4 +206,58 @@ void leptjson::json::encode_utf8(unsigned u) {
         PUTC(0x80 | ((u >>  6) & 0x3F)); 
         PUTC(0x80 | ( u        & 0x3F)); 
     }
+}
+
+leptjson::json::Status leptjson::json::parse_array() {
+    size_t i = 0, size = 0;
+    Status ret;
+    EXPECT('[');
+    parse_whitespace();
+    if (*c.json == ']') {
+        ++c.json;
+        vp->type = _ARRAY;
+        vp->size = 0;
+        vp->e = nullptr;
+        return PARSE_OK;
+    }
+    while (true) {
+        if ((ret = parse_value()) != PARSE_OK)
+            break;
+        memcpy(c.context_push(sizeof(Value)), vp.get(), sizeof(Value));
+        vp->type = _NULL;
+        ++size;
+        parse_whitespace();
+        if (*c.json == ',') {
+            ++c.json;
+            parse_whitespace();
+        }
+        else if (*c.json == ']') {
+            ++c.json;
+            vp->type = _ARRAY;
+            vp->size = size;
+            memcpy(vp->e = new Value[size], c.context_pop(size * sizeof(Value)), size * sizeof(Value));
+            return PARSE_OK;
+        } else {
+            ret = PARSE_MISS_COMMA_OR_SQUARE_BRACKET;
+            break;
+        }
+    }
+    for (i = 0; i < size; ++i)
+        static_cast<Value*>(c.context_pop(sizeof(Value)))->free();
+    return ret;
+}
+
+void leptjson::json::Value::free() {
+    size_t i = 0;
+    switch (type) {
+        case _STRING:   
+            delete []s; break;
+        case _ARRAY:
+            for (; i < size; ++i)
+                e[i].free();
+            delete []e;
+            break;
+        default: break;
+    }
+    type = _NULL;
 }

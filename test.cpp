@@ -16,10 +16,10 @@ static int test_pass = 0;
 static constexpr std::array<const char*, 7> arrType = { 
     "_NULL", "_FALSE", "_TRUE", "_NUMBER", "_STRING", "_ARRAY", "_OBJECT"
 }; 
-static constexpr std::array<const char*, 10> arrStatus = {
+static constexpr std::array<const char*, 11> arrStatus = {
     "PARSE_OK", "PARSE_EXPECT_VALUE", "PARSE_INVALID_VALUE", "PARSE_ROOT_NOT_SINGULAR", "PARSE_NUMBER_TOO_BIG",
     "PARSE_MISS_QUOTATION_MARK", "PARSE_INVALID_STRING_ESCAPE", "PARSE_INVALID_STRING_CHAR",
-    "PARSE_INVALID_UNICODE_SURROGATE", "PARSE_INVALID_UNICODE_HEX"
+    "PARSE_INVALID_UNICODE_SURROGATE", "PARSE_INVALID_UNICODE_HEX", "PARSE_MISS_COMMA_OR_SQUARE_BRACKET"
 }; 
 
 using Type = leptjson::json::Type;
@@ -270,6 +270,54 @@ static void test_parse_invalid_unicode_surrogate() {
 
 
 
+/*----------     ARRAY     ----------*/
+static void test_parse_array() {
+    j.init();
+    EXPECT_EQ(Status::PARSE_OK, j.parse("[ ]"));
+    EXPECT_EQ(Type::_ARRAY, j.get_type());
+    EXPECT_EQ(0, j.get_array_size());
+    
+    TEST_ERROR(PARSE_INVALID_VALUE, "[1,]");
+    TEST_ERROR(PARSE_INVALID_VALUE, "[\"a\", nul]");
+
+    size_t i = 0, i2 = 0;
+    j.init();
+    EXPECT_EQ(Status::PARSE_OK, j.parse("[ null , false , true , 123 , \"abc\" ]"));
+    EXPECT_EQ(Type::_ARRAY, j.get_type());
+    EXPECT_EQ(5, j.get_array_size());
+    EXPECT_EQ(Type::_NULL,   j.get_array_element(0)->get_type());
+    EXPECT_EQ(Type::_FALSE,  j.get_array_element(1)->get_type());
+    EXPECT_EQ(Type::_TRUE,   j.get_array_element(2)->get_type());
+    EXPECT_EQ(Type::_NUMBER, j.get_array_element(3)->get_type());
+    EXPECT_EQ(Type::_STRING, j.get_array_element(4)->get_type());
+    EXPECT_EQ(123.0, j.get_array_element(3)->get_number());
+    EXPECT_EQ_STRING("abc", j.get_array_element(4)->get_string(), j.get_array_element(4)->get_string_length());
+
+    j.init();
+    EXPECT_EQ(Status::PARSE_OK, j.parse("[ [ ] , [ 0 ] , [ 0 , 1 ] , [ 0 , 1 , 2 ] ]"));
+    EXPECT_EQ(Type::_ARRAY, j.get_type());
+    EXPECT_EQ(4, j.get_array_size());
+    for (i = 0; i < 4; ++i) {
+        json::Value* a = j.get_array_element(i);
+        EXPECT_EQ(Type::_ARRAY, a->type);
+        EXPECT_EQ(i, a->size);
+        for (i2 = 0; i2 < i; ++i2) {
+            json::Value* e = a->get_array_element(i2);
+            EXPECT_EQ(Type::_NUMBER, e->get_type());
+            EXPECT_EQ(i2, e->get_number());
+        }
+    }
+}
+
+static void test_parse_miss_comma_or_square_bracket() {
+    TEST_ERROR(PARSE_MISS_COMMA_OR_SQUARE_BRACKET, "[1");
+    TEST_ERROR(PARSE_MISS_COMMA_OR_SQUARE_BRACKET, "[1}");
+    TEST_ERROR(PARSE_MISS_COMMA_OR_SQUARE_BRACKET, "[1 2");
+    TEST_ERROR(PARSE_MISS_COMMA_OR_SQUARE_BRACKET, "[[]");
+}
+
+
+
 static void test_parse() {
     test_parse_null();
     test_parse_true();
@@ -293,6 +341,9 @@ static void test_parse() {
 
     test_parse_invalid_unicode_hex();
     test_parse_invalid_unicode_surrogate();
+
+    test_parse_array();
+    test_parse_miss_comma_or_square_bracket();
 }
 
 int main() {
