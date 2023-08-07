@@ -62,8 +62,9 @@ leptjson::json::Status leptjson::json::parse_number() {
 
 #define PUTC(ch) do { *(char*)c.context_push(sizeof(char)) = (ch); } while(0)
 #define STRING_ERROR(ret) do { c.top = head; return ret; } while(0)
-leptjson::json::Status leptjson::json::parse_string() {
-    size_t head = c.top, len = 0;
+
+leptjson::json::Status leptjson::json::parse_string_raw(char** ps, size_t *plen) {
+    size_t head = c.top;
     unsigned u = 0, u2 = 0;
     const char* p = nullptr;
     EXPECT('\"');
@@ -101,8 +102,8 @@ leptjson::json::Status leptjson::json::parse_string() {
                         STRING_ERROR(PARSE_INVALID_STRING_ESCAPE);
                 }   break;
             case '\"':
-                len = c.top - head;
-                vp->set_string(static_cast<const char*>(c.context_pop(len)), len);
+                *plen = c.top - head;
+                *ps = static_cast<char*>(c.context_pop(*plen));
                 c.json = p;
                 return PARSE_OK;
             case '\0':
@@ -115,6 +116,15 @@ leptjson::json::Status leptjson::json::parse_string() {
     }
 }
 
+leptjson::json::Status leptjson::json::parse_string() {
+    Status ret;
+    char* s;
+    size_t len;
+    if ((ret = parse_string_raw(&s, &len)) == PARSE_OK)
+        set_string(s, len);
+    return ret;
+}
+
 leptjson::json::Status leptjson::json::parse_value() {
     switch (*c.json) {
         case 'n':   return parse_literal("null", _NULL);
@@ -123,6 +133,7 @@ leptjson::json::Status leptjson::json::parse_value() {
         default:    return parse_number();
         case '"':   return parse_string();
         case '[':   return parse_array();
+        case '{':   return parse_object();
         case '\0':  return PARSE_EXPECT_VALUE;
     }
 }
@@ -140,7 +151,7 @@ leptjson::json::Status leptjson::json::parse(const char* json) {
         }
     }
     assert(c.top == 0);
-    delete []c.stack;
+    free(c.stack);
     return ret;
 }
 
@@ -164,7 +175,7 @@ void* leptjson::json::Context::context_push(size_t size2) {
         if (size == 0)    size = PARSE_STACK_INIT_SIZE;
         while (top + size2 >= size)
             size += size >> 1;
-        stack = new char[size];
+        stack = (char*)realloc(stack, size);
     }
     ret = stack + top;
     top += size2;
@@ -257,7 +268,85 @@ void leptjson::json::Value::free() {
                 e[i].free();
             delete []e;
             break;
+        case _OBJECT:
+            for (i = 0; i < msize; ++i) {
+                delete []m[i].k;
+                m[i].v.free();
+            }
+            delete []m; 
+            break;
         default: break;
     }
     type = _NULL;
+}
+
+leptjson::json::Status leptjson::json::parse_object() {
+    size_t i = 0, size = 0;
+    Member m;
+    Status ret;
+    EXPECT('{');
+    parse_whitespace();
+    if (*c.json == '}') {
+        ++c.json;
+        vp->type = _OBJECT;
+        vp->m = nullptr;
+        vp->msize = 0;
+        return PARSE_OK;
+    }
+    m.k = nullptr;
+    size = 0;
+    while (true) {
+        char* str = nullptr;
+        m.v.type = _NULL;
+
+        if (*c.json != '"') {
+            ret = PARSE_MISS_KEY;
+            break;
+        }
+        if ((ret = parse_string_raw(&str, &m.klen)) != PARSE_OK)
+            break;
+        memcpy(m.k = new char[m.klen + 1], str, m.klen);
+        m.k[m.klen] = '\0';
+
+        parse_whitespace();
+        if (*c.json != ':') {
+            ret = PARSE_MISS_COLON;
+            break;
+        }
+        ++c.json;
+        parse_whitespace();
+
+        if((ret = parse_value()) != PARSE_OK)
+            break;
+        m.v = *vp;
+        memcpy(c.context_push(sizeof(Member)), &m, sizeof(Member));
+        ++size;
+        m.k = nullptr;
+
+        parse_whitespace();
+        if (*c.json == ',') {
+            ++c.json;
+            parse_whitespace();
+        } else if (*c.json == '}') {
+            size_t ss = sizeof(Member) * size;
+            ++c.json;
+            vp->type = _OBJECT;
+            vp->msize = size;
+            memcpy(vp->m = new Member[size], c.context_pop(ss), ss);
+            if (c.top == 0) m.v = Value();
+            return PARSE_OK;
+        } else {
+            ret = PARSE_MISS_COMMA_OR_CURLY_BRACKET;
+            break;
+        }
+    }
+
+    delete []m.k;
+    for (size_t i = 0; i < size; ++i) {
+        Member* m = static_cast<Member*>(c.context_pop(sizeof(Member)));
+        delete []m->k;
+        m->v.free();
+    }
+    vp->type = _NULL;
+    return ret;
 }

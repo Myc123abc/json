@@ -16,10 +16,11 @@ static int test_pass = 0;
 static constexpr std::array<const char*, 7> arrType = { 
     "_NULL", "_FALSE", "_TRUE", "_NUMBER", "_STRING", "_ARRAY", "_OBJECT"
 }; 
-static constexpr std::array<const char*, 11> arrStatus = {
+static constexpr std::array<const char*, 14> arrStatus = {
     "PARSE_OK", "PARSE_EXPECT_VALUE", "PARSE_INVALID_VALUE", "PARSE_ROOT_NOT_SINGULAR", "PARSE_NUMBER_TOO_BIG",
     "PARSE_MISS_QUOTATION_MARK", "PARSE_INVALID_STRING_ESCAPE", "PARSE_INVALID_STRING_CHAR",
     "PARSE_INVALID_UNICODE_SURROGATE", "PARSE_INVALID_UNICODE_HEX", "PARSE_MISS_COMMA_OR_SQUARE_BRACKET"
+    "PARSE_MISS_KEY", "PARSE_MISS_COLON", "PARSE_MISS_COMMA_OR_CURLY_BRACKE"
 }; 
 
 using Type = leptjson::json::Type;
@@ -318,6 +319,83 @@ static void test_parse_miss_comma_or_square_bracket() {
 
 
 
+/*----------     OBJECT     ----------*/
+static void test_parse_miss_key() {
+    TEST_ERROR(PARSE_MISS_KEY, "{:1,");
+    TEST_ERROR(PARSE_MISS_KEY, "{1:1,");
+    TEST_ERROR(PARSE_MISS_KEY, "{true:1,");
+    TEST_ERROR(PARSE_MISS_KEY, "{false:1,");
+    TEST_ERROR(PARSE_MISS_KEY, "{null:1,");
+    TEST_ERROR(PARSE_MISS_KEY, "{[]:1,");
+    TEST_ERROR(PARSE_MISS_KEY, "{{}:1,");
+    TEST_ERROR(PARSE_MISS_KEY, "{\"a\":1,");
+}
+
+static void test_parse_miss_colon() {
+    TEST_ERROR(PARSE_MISS_COLON, "{\"a\"}");
+    TEST_ERROR(PARSE_MISS_COLON, "{\"a\",\"b\"}");
+}
+
+static void test_parse_miss_comma_or_curly_bracket() {
+    TEST_ERROR(PARSE_MISS_COMMA_OR_CURLY_BRACKET, "{\"a\":1");
+    TEST_ERROR(PARSE_MISS_COMMA_OR_CURLY_BRACKET, "{\"a\":1]");
+    TEST_ERROR(PARSE_MISS_COMMA_OR_CURLY_BRACKET, "{\"a\":1 \"b\"");
+    TEST_ERROR(PARSE_MISS_COMMA_OR_CURLY_BRACKET, "{\"a\":{}");
+}
+
+static void test_parse_object() {
+    size_t i;
+
+    EXPECT_EQ(Status::PARSE_OK, j.parse(" { } "));
+    EXPECT_EQ(Type::_OBJECT, j.get_type());
+    EXPECT_EQ(0, j.get_object_size());
+
+    EXPECT_EQ(Status::PARSE_OK, j.parse(
+        " { "
+        "\"n\" : null , "
+        "\"f\" : false , "
+        "\"t\" : true , "
+        "\"i\" : 123 , "
+        "\"s\" : \"abc\", "
+        "\"a\" : [ 1, 2, 3 ],"
+        "\"o\" : { \"1\" : 1, \"2\" : 2, \"3\" : 3 }"
+        " } "
+    ));
+    EXPECT_EQ(Type::_OBJECT, j.get_type());
+    EXPECT_EQ(7, j.get_object_size());
+    EXPECT_EQ_STRING("n", j.get_object_key(0), j.get_object_key_length(0));
+    EXPECT_EQ(Type::_NULL, j.get_object_value(0)->get_type());
+    EXPECT_EQ_STRING("f", j.get_object_key(1), j.get_object_key_length(1));
+    EXPECT_EQ(Type::_FALSE, j.get_object_value(1)->get_type());
+    EXPECT_EQ_STRING("t", j.get_object_key(2), j.get_object_key_length(2));
+    EXPECT_EQ(Type::_TRUE, j.get_object_value(2)->get_type());
+    EXPECT_EQ_STRING("i", j.get_object_key(3), j.get_object_key_length(3));
+    EXPECT_EQ(Type::_NUMBER, j.get_object_value(3)->get_type());
+    EXPECT_EQ(123.0, j.get_object_value(3)->get_number());
+    EXPECT_EQ_STRING("s", j.get_object_key(4), j.get_object_key_length(4));
+    EXPECT_EQ(Type::_STRING, j.get_object_value(4)->get_type());
+    EXPECT_EQ_STRING("abc", j.get_object_value(4)->get_string(), j.get_object_value(4)->get_string_length());
+    EXPECT_EQ_STRING("a", j.get_object_key(5), j.get_object_key_length(5));
+    EXPECT_EQ(Type::_ARRAY, j.get_object_value(5)->get_type());
+    EXPECT_EQ(3, j.get_object_value(5)->get_array_size());
+    for (i = 0; i < 3; i++) {
+        json::Value* e = j.get_object_value(5)->get_array_element(i);
+        EXPECT_EQ(Type::_NUMBER, e->get_type());
+        EXPECT_EQ(i + 1.0, e->get_number());
+    }
+    EXPECT_EQ_STRING("o", j.get_object_key(6), j.get_object_key_length(6));
+    {
+        json::Value* o = j.get_object_value(6);
+        EXPECT_EQ(Type::_OBJECT, o->get_type());
+        for (i = 0; i < 3; i++) {
+            json::Value* ov = o->get_object_value(i);
+            EXPECT_EQ(Type::_TRUE, ('1' + i == o->get_object_key(i)[0]) ? Type::_TRUE : Type:: _FALSE);
+            EXPECT_EQ(1, o->get_object_key_length(i));
+            EXPECT_EQ(Type::_NUMBER, ov->get_type());
+            EXPECT_EQ(i + 1.0, ov->get_number());
+        }
+    }
+}
 static void test_parse() {
     test_parse_null();
     test_parse_true();
@@ -343,7 +421,12 @@ static void test_parse() {
     test_parse_invalid_unicode_surrogate();
 
     test_parse_array();
+
+    test_parse_object();
     test_parse_miss_comma_or_square_bracket();
+    test_parse_miss_colon();
+    test_parse_miss_key();
+    test_parse_miss_comma_or_curly_bracket();
 }
 
 int main() {
